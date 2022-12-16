@@ -26,6 +26,7 @@ from sagemaker.huggingface import HuggingFaceModel
 from sagemaker.model import SCRIPT_PARAM_NAME, DIR_PARAM_NAME
 from sagemaker.mxnet import MXNetModel
 from sagemaker.parameter import IntegerParameter
+from sagemaker.pipeline import _AutoMLModel
 from sagemaker.pytorch import PyTorchModel
 from sagemaker.sklearn import SKLearnModel
 from sagemaker.sparkml import SparkMLModel
@@ -137,6 +138,28 @@ def model(pipeline_session, model_data_param):
         source_dir=f"{DATA_DIR}",
         role=_ROLE,
     )
+
+@pytest.fixture
+def automl_model(pipeline_session):
+    container_def = [
+        {
+            "Image": "hehe",
+            "ModelDataUrl": "s3://hehe/model.tar.gz",
+            "Environment": {
+                "a": "1",
+                "b": "2"
+            }
+        },
+        {
+            "Image": "haha",
+            "ModelDataUrl": "s3://haha/model.tar.gz",
+            "Environment": {
+                "c": "3",
+                "d": "4"
+            }
+        }
+    ]
+    return _AutoMLModel(_ROLE, sagemaker_session=pipeline_session, container_def=container_def)
 
 
 def test_register_model_with_runtime_repack(pipeline_session, model_data_param, model):
@@ -348,6 +371,7 @@ def test_create_pipeline_model_with_runtime_repack(pipeline_session, model_data_
         sagemaker_session=pipeline_session,
     )
     step_dsl_list = json.loads(pipeline.definition())["Steps"]
+    print(step_dsl_list)
     assert len(step_dsl_list) == 2
     expected_repack_step_name = f"MyModelStep-{_REPACK_MODEL_NAME_BASE}-MyModel"
     for step in step_dsl_list:
@@ -1114,3 +1138,58 @@ def test_pass_in_wrong_type_of_retry_policies(pipeline_session, model):
             ),
         )
     assert "SageMakerJobStepRetryPolicy is not allowed for a create/registe" in str(error.value)
+
+def test_automl_model(pipeline_session, automl_model):
+    
+    
+    automl_model = my_auto_ml_step.get_auto_ml_model(...)
+
+
+    step_args_create = automl_model.create(
+        instance_type="c4.4xlarge",
+    )
+    step_args_register = automl_model.register(
+        content_types=["text/csv"],
+        response_types=["text/csv"],
+        inference_instances=["ml.t2.medium", "ml.m5.xlarge"],
+        transform_instances=["ml.m5.xlarge"],
+        model_package_group_name="MyModelPackageGroup",
+    )
+
+    model_step_create = ModelStep(
+        name="MyModelStepCreate",
+        step_args=step_args_create,
+        retry_policies=dict(
+            create_model_retry_policies=[
+                StepRetryPolicy(exception_types=[StepExceptionTypeEnum.THROTTLING], max_attempts=3)
+            ],
+            repack_model_retry_policies=[
+                SageMakerJobStepRetryPolicy(
+                    exception_types=[SageMakerJobExceptionTypeEnum.CAPACITY_ERROR], max_attempts=3
+                )
+            ],
+        ),
+    )
+
+    model_step_register = ModelStep(
+        name="MyModelStepRegister",
+        step_args=step_args_register,
+        retry_policies=dict(
+            create_model_retry_policies=[
+                StepRetryPolicy(exception_types=[StepExceptionTypeEnum.THROTTLING], max_attempts=3)
+            ],
+            repack_model_retry_policies=[
+                SageMakerJobStepRetryPolicy(
+                    exception_types=[SageMakerJobExceptionTypeEnum.CAPACITY_ERROR], max_attempts=3
+                )
+            ],
+        ),
+    )
+
+    pipeline = Pipeline(
+        name="MyPipeline",
+        steps=[model_step_create, model_step_register],
+        sagemaker_session=pipeline_session,
+    )
+    step_dsl_list = json.loads(pipeline.definition())["Steps"]
+    print(step_dsl_list)

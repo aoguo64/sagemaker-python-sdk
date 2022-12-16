@@ -455,3 +455,54 @@ class PipelineModel(object):
             raise ValueError("The SageMaker model must be created before attempting to delete.")
 
         self.sagemaker_session.delete_model(self.name)
+
+
+class _AutoMLModel(PipelineModel):
+
+    def __init__(
+        self, 
+        role: str, 
+        models: List[Model] = None, 
+        predictor_cls: Optional[callable] = None, 
+        name: Optional[str] = None, 
+        vpc_config: Optional[Dict[str, List[Union[str, PipelineVariable]]]] = None, 
+        sagemaker_session: Optional[Session] = None, 
+        enable_network_isolation: Union[bool, PipelineVariable] = False,
+        container_def: List[Dict[str, str]] = None,
+    ):
+        if models is not None and container_def is not None:
+            raise ValueError(
+                "models and container_def are both not None. "
+                "Specify only models or container_def."
+            )
+        if models is None and container_def is None:
+            raise ValueError(
+                "models and container_def are both None. "
+                "Specify either models or container_def."
+            )
+
+        self.container_def = container_def
+        if models is not None:
+            super().__init__(
+                models=models, 
+                role=role, 
+                predictor_cls=predictor_cls, 
+                name=name, 
+                vpc_config=vpc_config, 
+                sagemaker_session=sagemaker_session, 
+                enable_network_isolation=enable_network_isolation)
+        else:
+            super().__init__(
+                models=[], 
+                role=role, 
+                predictor_cls=predictor_cls, 
+                name=name, 
+                vpc_config=vpc_config, 
+                sagemaker_session=sagemaker_session, 
+                enable_network_isolation=enable_network_isolation)
+
+    def pipeline_container_def(self, instance_type=None):
+        if self.container_def is not None:
+            return self.container_def
+        else:
+            return super().pipeline_container_def(instance_type=instance_type)
